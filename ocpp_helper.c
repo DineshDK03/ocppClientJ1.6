@@ -1,201 +1,205 @@
 /**
 *@file            ocpp_process.c
 *@author          Parikshit Tyagi
-*@co-author       
+*@co-author
 *@version         1.4
 *@date            20 August 2019
-*@brief           
+*@brief
 *
 */
 
 #include "ocpp_helper.h"
 
+
+char ocppMessagePayload[MESSAGE_LEN];
+
 /**
- * This Frame is most crucial part for sending OCPP packet frame from CP to CMS, the CMS does not understand packet format apart from it
- * OCPP Payload --> [
- *                     <message Code>  <data type --> int>,
- *                     <message UUID>  <data type --> string>,
- *                     <action>        <data type --> string>,
- *                     <action data>   <data type --> JSON>
- *                  ]
+* This Frame is most crucial part for sending OCPP packet frame from CP to CMS, the CMS does not understand packet format apart from it
+* OCPP Payload --> [
+*                     <message Code>  <data type --> int>,
+*                     <message UUID>  <data type --> string>,
+*                     <action>        <data type --> string>,
+*                     <action data>   <data type --> JSON>
+*                  ]
 */
 
-char *ocppFrameArray = "[%s,\"%s\",\"%s\",%s]";
+char *ocppFrameArray_call = "[%s,\"%s\",\"%s\",%s]";
 
+char *ocppFrameArray_res = "[%s,\"%s\",%s]";
 
 //*****************************************UUID-Block-Start***********************************//
 /**
- * This block generates UUID according to RFC 4122 using /dev/urandom of 36 length for OCPP message Packet
- * in order to identify each message processed by server
- */
+* This block generates UUID according to RFC 4122 using /dev/urandom of 36 length for OCPP message Packet
+* in order to identify each message processed by server
+*/
 
 /**
- * @brief   --> It get file descriptor of /dev/urandom or /dev/random in UNIX machine
- * @parmas  --> void
+* @brief   --> It get file descriptor of /dev/urandom or /dev/random in UNIX machine
+* @parmas  --> void
 */
 
 static
 int random_get_fd(void)
 {
-    int i, fd;
-    struct timeval tv;
+int i, fd;
+struct timeval tv;
 
-    gettimeofday(&tv, 0);
-    fd = open("/dev/urandom", O_RDONLY);
-    if(fd == -1)
-        fd = open("/dev/random", O_RDONLY | O_NONBLOCK);
-    if (fd >=0)
-    {
+gettimeofday(&tv, 0);
+fd = open("/dev/urandom", O_RDONLY);
+if(fd == -1)
+fd = open("/dev/random", O_RDONLY | O_NONBLOCK);
+if (fd >=0)
+{
         i = fcntl(fd, F_GETFD);
         if (i >= 0)
-            fcntl(fd, F_SETFD, i | FD_CLOEXEC);
-    }
-    srand((getpid() << 16) ^ getuid() ^ tv.tv_sec ^ tv.tv_usec);
-    /* Crank the random number generator a few times */
-    gettimeofday(&tv, 0);
-    for (i = (tv.tv_sec ^ tv.tv_usec) & 0x1F; i > 0; i--)
-        rand();
-    return fd;    
+        fcntl(fd, F_SETFD, i | FD_CLOEXEC);
+}
+srand((getpid() << 16) ^ getuid() ^ tv.tv_sec ^ tv.tv_usec);
+/* Crank the random number generator a few times */
+gettimeofday(&tv, 0);
+for (i = (tv.tv_sec ^ tv.tv_usec) & 0x1F; i > 0; i--)
+rand();
+return fd;
 
 }
 
 /**
- *  @brief   -->  Generate a stream of random nbytes into buf.
- *               Use /dev/urandom if possible, and if not,
- *               use glibc pseudo-random functions.
- *  @param  --> void *buf      : buffer pointer of no data type where random data generated from /dev/urandom is to be copied
- *              size_t nbytes  : size of the buffer or the no of bytes to be written 
+*  @brief   -->  Generate a stream of random nbytes into buf.
+*               Use /dev/urandom if possible, and if not,
+*               use glibc pseudo-random functions.
+*  @param  --> void *buf      : buffer pointer of no data type where random data generated from /dev/urandom is to be copied
+*              size_t nbytes  : size of the buffer or the no of bytes to be written
 */
 
 static
 void random_get_bytes(void *buf, size_t nbytes)
 {
-    size_t i, n = nbytes;
-    int fd = random_get_fd();
-    int lose_counter = 0;
-    unsigned char *cp = (unsigned char *)buf;
+size_t i, n = nbytes;
+int fd = random_get_fd();
+int lose_counter = 0;
+unsigned char *cp = (unsigned char *)buf;
 
-    if (fd >= 0)
-    {
+if (fd >= 0)
+{
         while(n > 0)
         {
-            ssize_t x = read(fd, cp, n);
-            if(x <= 0)
-            {
-                if (lose_counter++ > 16)
-                    break;
-                continue;
-            }
-            n -= x;
-            cp += x;
-            lose_counter = 0;
+                ssize_t x = read(fd, cp, n);
+                if(x <= 0)
+                {
+                        if (lose_counter++ > 16)
+                        break;
+                        continue;
+                }
+                n -= x;
+                cp += x;
+                lose_counter = 0;
         }
-        close(fd);      
-    }
-    /*
-	 * We do this all the time, but this is the only source of
-	 * randomness if /dev/random/urandom is out to lunch.
-	 */
+        close(fd);
+}
+/*
+* We do this all the time, but this is the only source of
+* randomness if /dev/random/urandom is out to lunch.
+*/
 
-    for (cp = buf, i = 0; i < nbytes; i++)
-        *cp++ ^= (rand() >> 7) & 0xFF;
+for (cp = buf, i = 0; i < nbytes; i++)
+*cp++ ^= (rand() >> 7) & 0xFF;
 
-    return;
+return;
 }
 
 /**
- *  @brief   --> This function generates UUID of 16 octects according to RFC4122
- *  @param  --> uuid_t out : uuid_t type of GUID octets
- *               int *num   : this is static value taken for OR and AND operations in the function
+*  @brief   --> This function generates UUID of 16 octects according to RFC4122
+*  @param  --> uuid_t out : uuid_t type of GUID octets
+*               int *num   : this is static value taken for OR and AND operations in the function
 */
 
 static
 void __uuid_generate_random(uuid_t out, int *num)
 {
-    uuid_t buf;
-    struct uuid uu;
-    int i, n;
+uuid_t buf;
+struct uuid uu;
+int i, n;
 
-    if (!num || !*num)
-        n = 1;
-    else
-        n = *num;
+if (!num || !*num)
+n = 1;
+else
+n = *num;
 
-    for(i = 0; i < n; i++)
-    {
+for(i = 0; i < n; i++)
+{
         random_get_bytes(buf, sizeof(buf));
         uuid_unpack(buf, &uu);
 
         uu.clock_seq = (uu.clock_seq & 0x3FFF) | 0x8000;
         uu.time_hi_and_version = (uu.time_hi_and_version & 0x0FFF) | 0x4000;
-        
+
         uuid_pack(&uu, out);
         out += sizeof(uuid_t);
-    }
+}
 }
 
 
 /**
- *  @brief   --> This function unpacks/parse the GUID generated by sending uuid_t to UUID struct mentioned in RFC4122
- *  @param  --> const uuid_t in : Used for sending GUID of uuid_t type
- *               struct uuid *uu : uuid structure passed for parsing the values from GUID octet to readable UUID struct
+*  @brief   --> This function unpacks/parse the GUID generated by sending uuid_t to UUID struct mentioned in RFC4122
+*  @param  --> const uuid_t in : Used for sending GUID of uuid_t type
+*               struct uuid *uu : uuid structure passed for parsing the values from GUID octet to readable UUID struct
 */
 
 static
 void uuid_unpack(const uuid_t in, struct uuid *uu)
 {
-    const uint8_t   *ptr = in;
-    uint32_t        tmp;
+	const uint8_t   *ptr = in;
+	uint32_t        tmp;
 
-    tmp = *ptr++;
-    tmp = (tmp << 8) | *ptr++;
-    tmp = (tmp << 8) | *ptr++;
-    tmp = (tmp << 8) | *ptr++;
-    uu->time_low = tmp;
-    
-    tmp = *ptr++;
-    tmp = (tmp << 8) | *ptr++;
-    uu->time_mid = tmp;
+	tmp = *ptr++;
+	tmp = (tmp << 8) | *ptr++;
+	tmp = (tmp << 8) | *ptr++;
+	tmp = (tmp << 8) | *ptr++;
+	uu->time_low = tmp;
 
-    tmp = *ptr++;
-    tmp = (tmp << 8) | *ptr++;
-    uu->time_hi_and_version = tmp;
+	tmp = *ptr++;
+	tmp = (tmp << 8) | *ptr++;
+	uu->time_mid = tmp;
 
-    tmp = *ptr++;
-    tmp = (tmp << 8) | *ptr++;
-    uu->clock_seq = tmp;
+	tmp = *ptr++;
+	tmp = (tmp << 8) | *ptr++;
+	uu->time_hi_and_version = tmp;
 
-    memcpy(uu->node, ptr, 6);
+	tmp = *ptr++;
+	tmp = (tmp << 8) | *ptr++;
+	uu->clock_seq = tmp;
+
+	memcpy(uu->node, ptr, 6);
 }
 
 
 /**
- *  @brief   --> This packet packs the struct uuid into GUID octets
- *  @param  --> const struct uuid **uu : uuid structure passed for generating GUID
- *               uuid_t ptr             : GUID pointer to be passed
+*  @brief   --> This packet packs the struct uuid into GUID octets
+*  @param  --> const struct uuid **uu : uuid structure passed for generating GUID
+*               uuid_t ptr             : GUID pointer to be passed
 */
 
 static
 void uuid_pack(const struct uuid *uu, uuid_t ptr)
 {
-    uint32_t   tmp;
-    unsigned char   *out = ptr;
+	uint32_t   tmp;
+	unsigned char   *out = ptr;
 
-    tmp = uu->time_low;
-    out[3] = (unsigned char)tmp;
-    tmp >>= 8;
-    out[2] = (unsigned char)tmp;
-    tmp >>= 8;
-    out[1] = (unsigned char)tmp;
-    tmp >>= 8;
-    out[0] = (unsigned char)tmp;
+	tmp = uu->time_low;
+	out[3] = (unsigned char)tmp;
+	tmp >>= 8;
+	out[2] = (unsigned char)tmp;
+	tmp >>= 8;
+	out[1] = (unsigned char)tmp;
+	tmp >>= 8;
+	out[0] = (unsigned char)tmp;
 
-    tmp = uu->time_mid;
-    out[5] = (unsigned char)tmp;
-    tmp >>= 8;
-    out[4] = (unsigned char)tmp;
+	tmp = uu->time_mid;
+	out[5] = (unsigned char)tmp;
+	tmp >>= 8;
+	out[4] = (unsigned char)tmp;
 
-    tmp = uu->time_hi_and_version;
+	tmp = uu->time_hi_and_version;
 	out[7] = (unsigned char) tmp;
 	tmp >>= 8;
 	out[6] = (unsigned char) tmp;
@@ -211,36 +215,36 @@ void uuid_pack(const struct uuid *uu, uuid_t ptr)
 
 
 /**
- *  @brief   --> to parse GUID generated into readable UUID of 36 bit lower format
- *  @param  --> const uuid_t uu : uuid_t type data to be passed once it has 16 Octets generated
- *               char *out       : char pointer to be passed which will point to the UUID generated
+*  @brief   --> to parse GUID generated into readable UUID of 36 bit lower format
+*  @param  --> const uuid_t uu : uuid_t type data to be passed once it has 16 Octets generated
+*               char *out       : char pointer to be passed which will point to the UUID generated
 */
 
-static   
+static
 void uuid_unparse_lower(const uuid_t uu, char *out)
 {
-    uuid_unparse_x(uu, out, fmt_lower);
+uuid_unparse_x(uu, out, fmt_lower);
 }
 
 
 /**
- *  @brief   --> this is sub functionality of above function which first unpack the GUID octect and then prints into lower format
- *  @param  --> const uuid_t uu : uuid_t type data to be passed once it has 16 Octets generated
- *               char *out       : char pointer to be passed which will point to the UUID generated
- *               const char *fmt : lower character format defined in ocpp_helper.h file
+*  @brief   --> this is sub functionality of above function which first unpack the GUID octect and then prints into lower format
+*  @param  --> const uuid_t uu : uuid_t type data to be passed once it has 16 Octets generated
+*               char *out       : char pointer to be passed which will point to the UUID generated
+*               const char *fmt : lower character format defined in ocpp_helper.h file
 */
 
 static
 void uuid_unparse_x(const uuid_t uu, char *out, const char *fmt)
 {
-    struct uuid uuid;
+	struct uuid uuid;
 
-    uuid_unpack(uu, &uuid);
-    sprintf(out, fmt,
-    uuid.time_low, uuid.time_mid, uuid.time_hi_and_version,
-    uuid.clock_seq >> 8, uuid.clock_seq & 0xFF,
-    uuid.node[0], uuid.node[1], uuid.node[2],
-    uuid.node[3], uuid.node[4], uuid.node[5]);
+	uuid_unpack(uu, &uuid);
+	sprintf(out, fmt,
+			uuid.time_low, uuid.time_mid, uuid.time_hi_and_version,
+			uuid.clock_seq >> 8, uuid.clock_seq & 0xFF,
+			uuid.node[0], uuid.node[1], uuid.node[2],
+			uuid.node[3], uuid.node[4], uuid.node[5]);
 }
 
 //*******************************************************UUID Block Ends************************//
@@ -249,49 +253,49 @@ void uuid_unparse_x(const uuid_t uu, char *out, const char *fmt)
 //******************************************Read-Config.json*****************************//
 
 /**
- *  @brief   --> to read the JSON configuration file defined and return JSON format data
- *  @param  --> const char *filepath : filepath of the json configuration file
+*  @brief   --> to read the JSON configuration file defined and return JSON format data
+*  @param  --> const char *filepath : filepath of the json configuration file
 */
 
-cJSON 
+cJSON
 *readConfigFile(const char *filepath)
 {
-    printf("Config File Path -> %s\n", filepath);
-    char *source = NULL;
-    cJSON *config_json = NULL;
-    FILE *fp = fopen(filepath, "r");                      //reading file in read mode
-    if(fp != NULL){
-        if(fseek(fp, 0L, SEEK_END) == 0){
-            long bufsize = ftell(fp);
-            if (bufsize == -1){
-                fprintf(stderr,"Error during initialization of buffer\n");
-            }
-            source = malloc(sizeof(char)*(bufsize));
-            if (fseek(fp, 0L, SEEK_SET) != 0)
-            {
-                fprintf(stderr,"Error while backtracing the file\n");
-            }
-            size_t newLen = fread(source, sizeof(char), bufsize, fp);
-            if (ferror(fp) != 0){
-                fprintf(stderr,"Error reading file");
-            }
-            else{
-                source[newLen++] = '\0';
-            }
+	printf("Config File Path -> %s\n", filepath);
+        char *source = NULL;
+        cJSON *config_json = NULL;
+        FILE *fp = fopen(filepath, "r");                      //reading file in read mode
+        if(fp != NULL){
+                if(fseek(fp, 0L, SEEK_END) == 0){
+                        long bufsize = ftell(fp);
+                        if (bufsize == -1){
+                                fprintf(stderr,"Error during initialization of buffer\n");
+                        }
+                        source = malloc(sizeof(char)*(bufsize));
+                        if (fseek(fp, 0L, SEEK_SET) != 0)
+                        {
+                                fprintf(stderr,"Error while backtracing the file\n");
+                        }
+                        size_t newLen = fread(source, sizeof(char), bufsize, fp);
+                        if (ferror(fp) != 0){
+                                fprintf(stderr,"Error reading file");
+                        }
+                        else{
+                                source[newLen++] = '\0';
+                        }
+                }
+                fclose(fp);
         }
-        fclose(fp);
-    }
-    printf("Buffer -> \n%s\n", source);
-    config_json = cJSON_Parse(source);
-    if(config_json == NULL){
-        const char *error_ptr = cJSON_GetErrorPtr();
-        if (error_ptr != NULL)
-        {
-            fprintf(stderr, "Error before: %s\n", error_ptr);
+        printf("Buffer -> \n%s\n", source);
+        config_json = cJSON_Parse(source);
+        if(config_json == NULL){
+                const char *error_ptr = cJSON_GetErrorPtr();
+                if (error_ptr != NULL)
+                {
+                        fprintf(stderr, "Error before: %s\n", error_ptr);
+                }
         }
-    }
-    free(source);
-    return config_json;
+        free(source);
+        return config_json;
 }
 
 //**********************************************************************************//
@@ -301,100 +305,117 @@ cJSON
 //*****************************************************OCPP-Packet-Formation*********************//
 
 /**
- *  @brief   --> to make a structure frame for consolidated and neccessary data required for sending OCPPFrame.
- *               it returns ocpp_frame struct once parsed
- *  @param  --> char *messagecode : According to OCPP, messageCode is the code for RPC call/response/error
- *               char *actiontocms : The action that is needed to be taken by CMS, requested by CP
- *               cJSON *jsonpacket : The JSON packet to be send according to the action schema defined in OCPP1.6J schemas
+*  @brief   --> to make a structure frame for consolidated and neccessary data required for sending OCPPFrame.
+*               it returns ocpp_frame struct once parsed
+*  @param  --> char *messagecode : According to OCPP, messageCode is the code for RPC call/response/error
+*               char *actiontocms : The action that is needed to be taken by CMS, requested by CP
+*               cJSON *jsonpacket : The JSON packet to be send according to the action schema defined in OCPP1.6J schemas
 */
 
-ocpp_frame 
-*formOCPPFrame(char *messagecode, char *actiontocms, cJSON *jsonpacket)
+ocpp_frame
+*formOCPPFrame(char *messagecode, char *actiontocms, char *messageid, cJSON *jsonpacket)
 {
-    printf("Inside formOCPP packet\n");
-    uuid_t binuuid;
-    int num = 1;
-    char *uuid = malloc(37);     //UUID of 36 length hence allocation 37 for 36 + '\0' 
-    if (uuid == NULL)
-    {
-        fprintf(stderr, "Failed to provide memory for UUID\n");
-    }
-    ocpp_frame *frame = NULL;
-    frame = (ocpp_frame *)malloc(sizeof(ocpp_frame));  //allocating memory for ocppframe
-    if (frame == NULL)
-    {
-        fprintf(stderr, "Unable to allocate memory to ocpp frame\n");
-    }
-    memset(frame, 0, sizeof(frame));                  //initializing frame with zero
-    frame->messageCode = (char *)malloc(sizeof(messagecode) +1);     //allocating memory for messageCode of ocpp frame
-    if(frame->messageCode == NULL)
-    {
-        printf("Unable to locate memory for messagecode");
-    }
-    memset(frame->messageCode, 0, strlen(messagecode) +1);     //initializing frame with zero
-    __uuid_generate_random(binuuid, &num);                    //calling function to generate GUID
-    uuid_unparse_lower(binuuid, uuid);                        //Parsing GUID in 36 bits char uuid lower format
-    frame->messageID = (char *)malloc(strlen(uuid) +1);      //allocating memory equivalent to UUID + '\0'
-    if (frame->messageID == NULL)
-    {
-        printf("Not able to assign message ID\n");
-    }
-    memset(frame->messageID, 0, strlen(uuid) +1);             //initializing frame with zero
-    frame->action = (char *)malloc(strlen(actiontocms) +1);   //allocating memory equivalent to actiontocms
-    if (frame->action == NULL)
-    {
-        printf("Unable to allocate memory of action frame\n");
-    }
-    memset(frame->action, 0, strlen(actiontocms) +1);       
-    strncpy(frame->messageCode, messagecode, strlen(messagecode));     //copying messagecode in ocpp frame
-    strncpy(frame->messageID, uuid, strlen(uuid));                     //copying messageID in ocpp frame
-    strncpy(frame->action, actiontocms, strlen(actiontocms));         //copying action in ocpp frame
-    frame->jsonPacket = jsonpacket;                               //frame->jsonPacket frame pointing towards jsonpacket passed through argument
-    free(uuid);                                                  //freeing memory allocated for uuid
-    return frame;
+	printf("Inside formOCPP packet\n");
+	uuid_t binuuid;
+	int num = 1;
+
+	char *uuid = malloc(37);     //UUID of 36 length hence allocation 37 for 36 + '\0'
+	if (uuid == NULL)
+	{
+		fprintf(stderr, "Failed to provide memory for UUID\n");
+	}
+
+	ocpp_frame *frame = NULL;
+	frame = (ocpp_frame *)malloc(sizeof(ocpp_frame));  //allocating memory for ocppframe
+	if (frame == NULL)
+	{
+		fprintf(stderr, "Unable to allocate memory to ocpp frame\n");
+	}
+	memset(frame, 0, sizeof(frame));                  //initializing frame with zero
+
+	frame->messageCode = (char *)malloc(sizeof(messagecode) +1);     //allocating memory for messageCode of ocpp frame
+	if(frame->messageCode == NULL)
+	{
+		printf("Unable to locate memory for messagecode");
+	}
+	memset(frame->messageCode, 0, strlen(messagecode) +1);     //initializing frame with zero
+
+        if (messageid == NULL) {
+        	__uuid_generate_random(binuuid, &num);                    //calling function to generate GUID
+        	uuid_unparse_lower(binuuid, uuid);                        //Parsing GUID in 36 bits char uuid lower format
+        } else {
+                strncpy(uuid, messageid, strlen(messageid) +1);
+        }
+
+        frame->messageID = (char *)malloc(strlen(uuid) +1);      //allocating memory equivalent to UUID + '\0'
+        if (frame->messageID == NULL)
+        {
+                printf("Not able to assign message ID\n");
+        }
+        memset(frame->messageID, 0, strlen(uuid) +1);             //initializing frame with zero
+        printf("\n\nmessageCode : %s \n\n", actiontocms);
+	frame->action = (char *)malloc(strlen(actiontocms) +1);   //allocating memory equivalent to actiontocms
+	if (frame->action == NULL)
+	{
+		printf("Unable to allocate memory of action frame\n");
+	}
+	memset(frame->action, 0, strlen(actiontocms) +1);
+
+	strncpy(frame->messageCode, messagecode, strlen(messagecode));     //copying messagecode in ocpp frame
+	strncpy(frame->messageID, uuid, strlen(uuid));                     //copying messageID in ocpp frame
+	strncpy(frame->action, actiontocms, strlen(actiontocms));         //copying action in ocpp frame
+	frame->jsonPacket = jsonpacket; //frame->jsonPacket frame pointing towards jsonpacket passed through argument
+
+	free(uuid);                                                  //freeing memory allocated for uuid
+	return frame;
 }
 
 
 /**
- *  @brief   --> to make ocpp payload and it to CMS and if the payload is sent successfully then return 0
- *  @param  --> wsclient *c        : websocket client, from which the payload will be sent
- *               ocpp_frame *packet : the ocpp packet frame that is to be sent
+*  @brief   --> to make ocpp payload and it to CMS and if the payload is sent successfully then return 0
+*  @param  --> wsclient *c        : websocket client, from which the payload will be sent
+*               ocpp_frame *packet : the ocpp packet frame that is to be sent
 */
 
 //For success this message sends 0 otherwise -1
 int sendFrameToCMS(wsclient *c,ocpp_frame *packet){
-    int responseLength = 0;
-    //using snprintf printing values of OCPPFrame in ocppMessagePayload taking reference of ocppFrameArray
-    snprintf(ocppMessagePayload ,MESSAGE_LEN, ocppFrameArray, packet->messageCode, packet->messageID, packet->action,cJSON_Print(packet->jsonPacket));
-    responseLength = libwsclient_send(c, ocppMessagePayload);        //calling function which accepts wsClient and char *payload 
-    if(responseLength > 0){
-        memset(ocppMessagePayload, 0, sizeof(ocppMessagePayload));   //reinitializing the ocppMessagePayload for other messages
-        return 0;
-    }
-    else
-    {
-        return -1;
-    }
-    
+        int responseLength = 0;
+        //using snprintf printing values of OCPPFrame in ocppMessagePayload taking reference of ocppFrameArray
+        if (*packet->messageCode == '3') {
+                snprintf(ocppMessagePayload ,MESSAGE_LEN, ocppFrameArray_res, packet->messageCode, packet->messageID, cJSON_Print(packet->jsonPacket));
+        } else {
+                snprintf(ocppMessagePayload ,MESSAGE_LEN, ocppFrameArray_call, packet->messageCode, packet->messageID, packet->action,cJSON_Print(packet->jsonPacket));
+        }
+        responseLength = libwsclient_send(c, ocppMessagePayload);        //calling function which accepts wsClient and char *payload
+
+        printf("payload : %s\n\n", ocppMessagePayload);
+        if (responseLength > 0) {
+                //reinitializing the ocppMessagePayload for other messages
+                memset(ocppMessagePayload, 0, sizeof(ocppMessagePayload));
+                return 0;
+        } else {
+                return -1;
+        }
+
 }
 
 
 /**
- *  @brief   --> This function sends the sub-string of the packet received and used for parsing it
- *  @param  --> char *source : source string pointer
- *               char *target : target string that is to be changed
- *               int from     : index value of source string from where values are to be parsed
- *               int to       : index value till the value needs to be parsed
+*  @brief   --> This function sends the sub-string of the packet received and used for parsing it
+*  @param  --> char *source : source string pointer
+*               char *target : target string that is to be changed
+*               int from     : index value of source string from where values are to be parsed
+*               int to       : index value till the value needs to be parsed
 */
 
-static 
+static
 int  getSubString(char *source, char *target,int from, int to)
 {
         int length=0;
         int i=0,j=0;
         //get length
         while(source[i++]!='\0')
-                length++;
+        length++;
         if(from<0 || from>length){
                 printf("Invalid \'from\' index\n");
                 return 1;
@@ -411,99 +432,125 @@ int  getSubString(char *source, char *target,int from, int to)
         return 0;
 }
 
+/**
+ *  These are the message codes when any RPC call is made from CMS or CP
+ */
+char *call_code = "2";          //This message code is used when any RPC call is to be made
+char *response_code = "3";      //This message code is used when response of any RPC call is to be given
+char *error_code = "4";        //This message code is used when there is some error in sending packet or Transport layer
+
 
 /**
- *  @brief   --> This function parses messages that come from CMS to CP into ocppFrame
- *  @param  --> char *payload : The response payload that comes from server to client
+*  @brief   --> This function parses messages that come from CMS to CP into ocppFrame
+*  @param  --> char *payload : The response payload that comes from server to client
 */
 
-ocpp_frame 
-    *parseOCPPFrame(char *payload)
-{   
-    int count = 0;
-    ocpp_frame *frame = NULL;
-    frame = (ocpp_frame *)malloc(sizeof(ocpp_frame));     //allocating memory for ocppFrame
-    if (frame == NULL)
-    {
-        fprintf(stderr, "Unable to allocate memory to ocpp frame\n");
-    }
-    memset(frame, 0, sizeof(frame));          //initializing ocppFrame with zero
-    char *jsonStr = NULL;
-    char *str = NULL;
-    str = (char *)malloc(strlen(payload)+1);     //allocating memory for the payload from response to remove '[]' from the payload
-    if(str == NULL){
-        fprintf(stderr, "Unable to allocate memory to string");
-    }
-    getSubString(payload, str, 1, strlen(payload)-2);  //function called to parse response and leaving both exterme end indexes 
-    char delim[] = ",";                              //assigning delimiter to seperate the values
-    char *ptr = strtok(str, delim);                  //strtok function used from string.h library for segregating values
-    while(ptr != NULL)
-    {
-        //switch condition to address each messages seperately
-        switch (count++)
+ocpp_frame
+*parseOCPPFrame(char *payload)
+{
+        int count = 0;
+        ocpp_frame *frame = NULL;
+        frame = (ocpp_frame *)malloc(sizeof(ocpp_frame));     //allocating memory for ocppFrame
+        if (frame == NULL)
         {
-        //case for parsing messageCode and saving into ocppFrame->messageCode
-        case 0:
-            frame->messageCode = (char *)malloc(strlen(ptr)+1);
-            if(frame->messageCode == NULL)
-            {
-                fprintf(stderr,"Unable to locate memory for messagecode");
-            }
-            memset(frame->messageCode, 0, strlen(ptr));
-            strncpy(frame->messageCode, ptr, strlen(ptr)+1);
-            break;
-        
-        //case for parsing messageID and saving into ocppFrame->messageID
-        case 1:
-            goto Cleanup;
-            Cleanup: ;
-            char *uuid = malloc(37);
-            getSubString(ptr, uuid, 1, strlen(ptr)-2); //used to remove '""' commas from the message
-            frame->messageID = (char *)malloc(strlen(ptr)+1);
-            if (frame->messageID == NULL)
-            {
-                fprintf(stderr,"Not able to assign message ID\n");
-            }
-            memset(frame->messageID, 0, strlen(ptr)+1);
-            //strncpy(frame->messageID, ptr, strlen(ptr) +1);
-            strncpy(frame->messageID, uuid, strlen(uuid) +1);
-            free(uuid);
-            break;
-
-        //once all the cases are addressed, this default case used in parsing the complete JSON packet since strtok will break json into different words
-        default:
-            if(jsonStr == NULL)
-            {
-                //For the firsttime allocating memory usign malloc for the first word
-                jsonStr = (char *)malloc(strlen(ptr)+1);
-                if(jsonStr == NULL)
-                {
-                    fprintf(stderr, "Error in allocating memory to jsonString\n");
-                }
-                strcpy(jsonStr, ptr);
-            }
-            else
-            {
-               //Reallocating memory according to the proceeding string coming 
-               jsonStr = realloc(jsonStr, strlen(jsonStr)+strlen(ptr)+1);
-               if(jsonStr == NULL)
-               {
-                   fprintf(stderr, "Error in re-allocating memory to jsonString\n");
-               }
-               strcat(jsonStr, ",");    
-               strcat(jsonStr, ptr); 
-            }
-            break;
+                fprintf(stderr, "Unable to allocate memory to ocpp frame\n");
         }
-        ptr = strtok(NULL, delim);
-    }
-    //assigning JSON packet in the frame
-    frame->jsonPacket = cJSON_Parse(jsonStr);
-    //Freeing memory
-    free(str);
-    free(jsonStr);
+        memset(frame, 0, sizeof(frame));          //initializing ocppFrame with zero
+        char *jsonStr = NULL;
+        char *str = NULL;
+        str = (char *)malloc(strlen(payload)+1);     //allocating memory for the payload from response to remove '[]' from the payload
+        if(str == NULL){
+                fprintf(stderr, "Unable to allocate memory to string");
+        }
+        getSubString(payload, str, 1, strlen(payload)-2);  //function called to parse response and leaving both exterme end indexes
+        char delim[] = ",";                              //assigning delimiter to seperate the values
+        char *ptr = strtok(str, delim);                  //strtok function used from string.h library for segregating values
+        while(ptr != NULL)
+        {
+                //switch condition to address each messages seperately
+                switch (count++)
+                {
+                //case for parsing messageCode and saving into ocppFrame->messageCode
+                case 0:
+                        frame->messageCode = (char *)malloc(strlen(ptr)+1);
+                        if(frame->messageCode == NULL)
+                        {
+                                fprintf(stderr,"Unable to locate memory for messagecode");
+                        }
+                        memset(frame->messageCode, 0, strlen(ptr));
+                        strncpy(frame->messageCode, ptr, strlen(ptr)+1);
+                break;
 
-    return frame;
+                //case for parsing messageID and saving into ocppFrame->messageID
+                case 1:
+                        goto Cleanup;
+                        Cleanup: ;
+                        char *uuid = malloc(37);
+                        getSubString(ptr, uuid, 1, strlen(ptr)-2); //used to remove '""' commas from the message
+                        frame->messageID = (char *)malloc(strlen(ptr)+1);
+                        if (frame->messageID == NULL)
+                        {
+                                fprintf(stderr,"Not able to assign message ID\n");
+                        }
+			memset(frame->messageID, 0, strlen(ptr)+1);
+			//strncpy(frame->messageID, ptr, strlen(ptr) +1);
+			strncpy(frame->messageID, uuid, strlen(uuid) +1);
+			free(uuid);
+			break;
+
+		case 2:
+			if (!strcmp(frame->messageCode, (char *)response_code)) {
+                                continue;
+                        } else if (!strcmp(frame->messageCode, (char *)call_code)) {
+                                printf("%s", frame->messageCode);
+				char *state = malloc(64);
+				getSubString(ptr, state, 1, strlen(ptr)-2); //used to remove '""' commas from the message
+				frame->action = (char *)malloc(strlen(ptr)+1);
+				if(frame->action == NULL)
+				{
+					fprintf(stderr,"Unable to locate memory for action");
+				}
+				memset(frame->action, 0, strlen(ptr));
+				strncpy(frame->action, state, strlen(ptr)+1);
+				free(state);
+			} else {
+                                printf("error_code : %d\n", frame->messageCode);
+			}
+			break;
+			//once all the cases are addressed, this default case used in parsing the complete JSON packet since strtok will break json into different words
+		default:
+			if(jsonStr == NULL)
+			{
+				//For the firsttime allocating memory usign malloc for the first word
+				jsonStr = (char *)malloc(strlen(ptr)+1);
+				if(jsonStr == NULL)
+				{
+					fprintf(stderr, "Error in allocating memory to jsonString\n");
+				}
+				strcpy(jsonStr, ptr);
+			}
+			else
+			{
+				//Reallocating memory according to the proceeding string coming
+				jsonStr = realloc(jsonStr, strlen(jsonStr)+strlen(ptr)+1);
+				if(jsonStr == NULL)
+				{
+					fprintf(stderr, "Error in re-allocating memory to jsonString\n");
+				}
+				strcat(jsonStr, ",");
+				strcat(jsonStr, ptr);
+			}
+			break;
+		}
+		ptr = strtok(NULL, delim);
+	}
+	//assigning JSON packet in the frame
+	frame->jsonPacket = cJSON_Parse(jsonStr);
+	//Freeing memory
+	free(str);
+	free(jsonStr);
+
+	return frame;
 }
 
 
@@ -512,68 +559,139 @@ ocpp_frame
 
 //****************************************************OCPP-Json-Packet**********************//
 
+cJSON *AuthorizeRequest(const char *idTag)
+{
+        cJSON *auth_packet = cJSON_CreateObject();
+        cJSON_AddStringToObject(auth_packet, "idTag", idTag);
+
+        return auth_packet;
+}
+
+cJSON *ChangeAvailability_resp(const char *status)
+{
+        cJSON *res = cJSON_CreateObject();
+        cJSON_AddStringToObject(res, "status", status);
+
+        return res;
+}
+
+cJSON *HeartbeatRequest(void)
+{
+        cJSON *heartbeat_packet = cJSON_CreateObject();
+
+        return heartbeat_packet;
+}
+
+cJSON *MeterValuesRequest(int c_id, int t_id, char* timestamp, struct sampled_value sampled_value)
+{
+        cJSON *req_packet = cJSON_CreateObject();
+
+        cJSON *meterValue = cJSON_CreateArray();
+        cJSON *meterValue_properties = cJSON_CreateObject();
+        cJSON_AddStringToObject(meterValue_properties, "timestamp", timestamp);
+
+        cJSON *sampledValue = cJSON_CreateArray();
+        cJSON *sampledValue_properties = cJSON_CreateObject();
+        cJSON_AddStringToObject(sampledValue_properties, "value", sampled_value.value);
+        cJSON_AddStringToObject(sampledValue_properties, "context", sampled_value.context);
+        cJSON_AddStringToObject(sampledValue_properties, "format", sampled_value.format);
+        cJSON_AddStringToObject(sampledValue_properties, "measurand", sampled_value.measurand);
+        cJSON_AddStringToObject(sampledValue_properties, "phase", sampled_value.phase);
+        cJSON_AddStringToObject(sampledValue_properties, "location", sampled_value.location);
+        cJSON_AddStringToObject(sampledValue_properties, "unit", sampled_value.unit);
+        cJSON_AddItemToArray(sampledValue, sampledValue_properties);
+
+        cJSON_AddItemToObject(meterValue_properties,"sampledValue", sampledValue);
+
+        cJSON_AddItemToArray(meterValue, meterValue_properties);
+
+        cJSON_AddNumberToObject(req_packet, "connectorId", c_id);
+        cJSON_AddNumberToObject(req_packet, "transactionId", t_id);
+        cJSON_AddItemToObject(req_packet, "meterValue", meterValue);
+
+        return req_packet;
+}
 /**
  * Boot Notification Specific functions
- * 
+ *
  */
 
 
 /**
  *  @brief   --> To make bootNotification JSON packet mentioned in OCPP1.6J and then returning it
- *  @param  --> cJSON *config : configuration required for bootNotification JSON packet, since most of them are static in 
+ *  @param  --> cJSON *config : configuration required for bootNotification JSON packet, since most of them are static in
  *               nature and are part of config.json
-*/
+ */
 
 cJSON *bootNotificationRequest(cJSON *config){
-    cJSON *developmentPacket = NULL;
-    cJSON *chargePointProfile = NULL;
-    developmentPacket = cJSON_GetObjectItem(config, "development");
-    if(developmentPacket == NULL)
-    {
-        const char *error_ptr = cJSON_GetErrorPtr();
-        if (error_ptr != NULL)
-        {
-            fprintf(stderr, "Error before: %s\n", error_ptr);    
-        } 
-    }
-    chargePointProfile = cJSON_GetObjectItem(developmentPacket, "chargePointProfile");
-    if(chargePointProfile == NULL)
-    {
-        const char *error_ptr = cJSON_GetErrorPtr();
-        if (error_ptr != NULL)
-        {
-            fprintf(stderr, "Error before: %s\n", error_ptr);     
-        }
-    }
-    return chargePointProfile;
+	cJSON *developmentPacket = NULL;
+	cJSON *chargePointProfile = NULL;
+	developmentPacket = cJSON_GetObjectItem(config, "development");
+	if(developmentPacket == NULL)
+	{
+		const char *error_ptr = cJSON_GetErrorPtr();
+		if (error_ptr != NULL)
+		{
+			fprintf(stderr, "Error before: %s\n", error_ptr);
+		}
+	}
+	chargePointProfile = cJSON_GetObjectItem(developmentPacket, "chargePointProfile");
+	if(chargePointProfile == NULL)
+	{
+		const char *error_ptr = cJSON_GetErrorPtr();
+		if (error_ptr != NULL)
+		{
+			fprintf(stderr, "Error before: %s\n", error_ptr);
+		}
+	}
+	return chargePointProfile;
 }
 
+int get_utc_time(char *timestamp)
+{
+        struct timeval tv;
+        struct tm tm;
+        // char timestamp[] = "YYYY-MM-ddTHH:mm:ss.SSS";
+
+        /* Get the current time at high precision; could also use clock_gettime() for
+         * even higher precision times if we want it. */
+        gettimeofday(&tv, NULL);
+
+        gmtime_r(&tv.tv_sec, &tm);
+        /* format the time */
+        strftime(timestamp, TIME_STAMP_LEN, "%Y-%m-%dT%H:%M:%S.000%z", &tm);
+
+        /* but, since strftime() can't subsecond precision, we have to hack it
+         * in manually. '20' is the string offset of the subsecond value in our
+         * timestamp string. Also, because sprintf always writes a null, we have to
+         * write the subsecond value as well as the rest of the string already there.
+         */
+        sprintf(timestamp + 20, "%03ld%s", tv.tv_usec / 1000, timestamp + 23);
+}
 
 /**
  *  @brief   --> to change the time of client such that it can synchronize with CMS clock, this is part of BootNotification response,
  *               once CP is accepted in CMS
  *  @param  --> char *isoTime : This is the iso time format string that is sent by CMS to CP
-*/
+ */
 
 int changeTimeOfMachine(char *isoTime)
 {
-    printf("Inside change time code\n");
-    struct tm tm;
-    struct timeval set_tv;
-    memset(&tm, 0, sizeof(struct tm));
-    memset(&set_tv, 0, sizeof(struct timeval));
-    strptime(isoTime, "%Y-%m-%dT%H:%M:%S", &tm);            //strptime coneverts the time string into tm struct and all the time values can be accessed from here
-    time_t rawtime = mktime(&tm);           //This function returns rawtime or timestamp 
-    if(rawtime == -1)
-    {
-        fprintf(stderr, "The mktime() function failed\n");
-        return -1;
-    }
-    set_tv.tv_sec = rawtime;       //assigning raw time to set_tv.tv_sec
-    set_tv.tv_usec = 0;
+	printf("Inside change time code\n");
+	struct tm tm;
+	struct timeval set_tv;
+	memset(&tm, 0, sizeof(struct tm));
+	memset(&set_tv, 0, sizeof(struct timeval));
+	strptime(isoTime, "%Y-%m-%dT%H:%M:%S", &tm);            //strptime coneverts the time string into tm struct and all the time values can be accessed from here
+	time_t rawtime = mktime(&tm);           //This function returns rawtime or timestamp
+	if(rawtime == -1)
+	{
+		fprintf(stderr, "The mktime() function failed\n");
+		return -1;
+	}
+	set_tv.tv_sec = rawtime;       //assigning raw time to set_tv.tv_sec
+	set_tv.tv_usec = 0;
 
-    printf("Time changed successfully\n");
-    return 0; 
+	printf("Time changed successfully\n");
+	return 0;
 }
-
-

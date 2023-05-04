@@ -29,17 +29,3 @@ This code is tested with Steve server for OCPPJ1.6. The steve server code can be
 3. The **chargePointProfile** is used in boot notification message from client side for providing charger information to the server.
 4. If the dev platform supports gcc, then simply run **compile.sh** file and you will get an executable with name of **test**
 6. Use this executable to run and connect with ocpp complaint CMS server
-
----
-
-## How to take up further development
-
-Currently this client only supports bootNotification message and it's response, since OCPP is completely functionality dependent, it's better to use your own use cases for further developement, but there are already functions that can be used to create OCPP message or parse occpp messages.
-
-1. Use **parseOCPPFrame** function to parse any message from CMS and it will return a structure of **ocpp_frame** type from which further JSON packet can be retrieved.
-2. To form any OCPP frame, use **formOCPPFrame** function and to send it to server use **sendFrameToCMS** function.
-
----
-
-If further support is required, you can write me at parikshit04tyagi@gmail.com. Also if this source codes helps you in some way, don't forget to award a star to this repo. Happy Coding !!
-

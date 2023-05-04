@@ -45,9 +45,9 @@ typedef enum{
 }OCPP_States;
 
 //HeartBeat Interval used for pinging to CMS for mainting the connection
-uint64_t heartBeatInterval;
-//If the CP is rejected or state becomes pending, it is the interval when it will again retry 
-uint64_t retryInterval;
+//uint64_t heartBeatInterval;
+//If the CP is rejected or state becomes pending, it is the interval when it will again retry
+//uint64_t retryInterval;
 
 //OCPP Process starting point
 void ocpp_process_start();

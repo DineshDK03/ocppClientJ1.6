@@ -66,47 +66,47 @@
 
 
 typedef struct _wsclient_frame {
-    unsigned int fin;
-    unsigned int opcode;
-    unsigned int mask_offset;
-    unsigned int payload_offset;
-    unsigned int rawdata_idx;
-    unsigned int rawdata_sz;
-    unsigned long long payload_len;
-    char *rawdata;
-    struct _wsclient_frame *next_frame;
-    struct _wsclient_frame *prev_frame;
-    unsigned char mask[4];
+        unsigned int fin;
+        unsigned int opcode;
+        unsigned int mask_offset;
+        unsigned int payload_offset;
+        unsigned int rawdata_idx;
+        unsigned int rawdata_sz;
+        unsigned long long payload_len;
+        char *rawdata;
+        struct _wsclient_frame *next_frame;
+        struct _wsclient_frame *prev_frame;
+        unsigned char mask[4];
 } wsclient_frame;
 
 typedef struct _wsclient_message{
-    unsigned int opcode;
-    unsigned long long payload_len;
-    char *payload;
+        unsigned int opcode;
+        unsigned long long payload_len;
+        char *payload;
 } wsclient_message;
 
 typedef struct _wsclient_error {
-    int code;
-    int extra_code;
-    char *str;
+        int code;
+        int extra_code;
+        char *str;
 } wsclient_error;
 
 typedef struct _wsclient {
-    pthread_t helper_thread;
-    pthread_t handshake_thread;
-    pthread_t run_thread;
-    pthread_mutex_t lock;
-    pthread_mutex_t send_lock;
-    char *URI;
-    int sockfd;
-    int flags;
-    int (*onopen)(struct _wsclient *);
-    int (*onclose)(struct _wsclient *);
-    int (*onerror)(struct _wsclient *, wsclient_error *err);
-    int (*onmessage)(struct _wsclient *, wsclient_message *msg);
-    wsclient_frame *current_frame;
-    struct sockaddr_un helper_sa;
-    int helper_sock;
+        pthread_t helper_thread;
+        pthread_t handshake_thread;
+        pthread_t run_thread;
+        pthread_mutex_t lock;
+        pthread_mutex_t send_lock;
+        char *URI;
+        int sockfd;
+        int flags;
+        int (*onopen)(struct _wsclient *);
+        int (*onclose)(struct _wsclient *);
+        int (*onerror)(struct _wsclient *, wsclient_error *err);
+        int (*onmessage)(struct _wsclient *, wsclient_message *msg);
+        wsclient_frame *current_frame;
+        struct sockaddr_un helper_sa;
+        int helper_sock;
 } wsclient;
 
 
@@ -118,7 +118,7 @@ int libwsclient_open_connection(const char *host, const char *port);
 int libwsclient_complete_frame(wsclient *c, wsclient_frame *frame);
 void libwsclient_handle_control_frame(wsclient *c, wsclient_frame *ctl_frame);
 void libwsclient_run(wsclient *c);
-void libwsclient_finish(wsclient *client);       
+void libwsclient_finish(wsclient *client);
 void *libwsclient_run_thread(void *ptr);
 void *libwsclient_handshake_thread(void *ptr);
 void libwsclient_cleanup_frames(wsclient_frame *first);
@@ -133,7 +133,7 @@ void libwsclient_onerror(wsclient *client, int (*cb)(wsclient *c, wsclient_error
 
 
 
-int libwsclient_flags; //global flags variable
+//int libwsclient_flags; //global flags variable
 
 
 #endif

@@ -1,7 +1,7 @@
 {
     "development":{
-        "WS_URL": "<WS Connection URL>",
-        "chargePointID": "<Charge Point ID>",
+        "WS_URL": "ws://localhost:8180/steve/websocket/CentralSystemService/",
+        "chargePointID": "test",
         "chargePointProfile":
         {
             "chargePointVendor": "",
@@ -19,6 +19,6 @@
 
     },
     "testing":{
-        
+
     }
 }
